@@ -83,10 +83,10 @@ class Cpu(object):
         Jumps to a label if the if flag is true. No regs or PC is pushed before.
 
     call <label>
-        Jumps to a label after pushing all registers and the return program counter.
+        Jumps to a label after pushing the return program counter.
 
     callif <label>
-        Jumps to a label if the if flag is true. All regs and PC pushed before.
+        Jumps to a label if the if flag is true. The PC is pushed before.
 
     back
         Returns from a method by popping the program counter and the registers from the stack.
@@ -345,7 +345,7 @@ class Cpu(object):
             return self.jump(label)
 
     def call(self, label):
-        self.stack.append((self.program_counter, list(self.registers)))
+        self.stack.append(self.program_counter)
         self.program_counter = self.get_address(label)
         return True
 
@@ -354,11 +354,7 @@ class Cpu(object):
             return self.call(label)
 
     def back(self):
-        tmp = self.stack.pop()
-        try:
-            self.program_counter, self.registers = tmp
-        except:
-            self.program_counter = int(tmp)
+        self.program_counter = int(tmp)
 
     def trace(self):
         self.trace_flag = True
