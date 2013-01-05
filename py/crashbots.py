@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import simcpu
 from collections import namedtuple
 
