@@ -2,6 +2,7 @@
 
 import re
 import sys
+import copy
 
 ## 256 words of memory (can be anything, string, number, object or int)
 MEMSIZE = 256
@@ -119,6 +120,7 @@ class Cpu(object):
         self.labels = {}
         self.test_flag = False
         self.trace_flag = False
+        self.halted_flag = False
 
     @classmethod
     def ez_run(cls, program_string):
@@ -167,7 +169,7 @@ class Cpu(object):
         ... traceoff
         ... jump pastsub
         ... sub:
-        ... copy 0 R0
+        ... copy R0 0
         ... back
         ... pastsub:
         ... longdebug
@@ -200,7 +202,32 @@ class Cpu(object):
             sys.stderr.write('%s: ERROR: %s\n' % (lineno, line))
             sys.stderr.write('%s: ERROR: %s\n' % (lineno, e))
             raise e
+        self.program_validate()
 
+    def program_validate(self):
+        '''
+        Test the loaded instructions by running them all.
+        Memory, stack, flags and registers are restored after
+        '''
+        backupmem, self.memory = self.memory, copy.copy(self.memory)
+        backupreg, self.registers = self.registers, copy.copy(self.registers)
+        backupstack, self.stack = self.stack, copy.copy(self.stack)
+        backupflags = self.test_flag, self.trace_flag, self.halted_flag
+        backuppc = self.program_counter
+        for mem in self.memory:
+            if isinstance(mem, tuple):
+                if isinstance(mem[0], type(self.load)):
+                    if mem[0] is self.pop:
+                        self.stack.append(0)
+                    mem[0](*(mem[1]))
+                    if mem[0] is self.push:
+                        self.stack.pop()
+        self.memory = backupmem
+        self.registers = backupreg
+        self.stack = backupstack
+        self.test_flag, self.trace_flag, self.halted_flag = backupflags
+        self.program_counter = backuppc
+        
     def parse(self, line):
         line = line.strip()
         if not line or line[0] == '#':
@@ -233,35 +260,51 @@ class Cpu(object):
         if cmd == 'halt':
             return END_OF_PROGRAM
         try:
-            return (getattr(self, cmd), args)
+            res = (getattr(self, cmd), args)
+            if cmd in ['compute', 'copy']:
+                if args[0][0] not in 'R@':
+                    raise ParseException('<target> must be either (R)egister or (@)address: ' + line)
+            return res
         except AttributeError:
             raise ParseException('Unsupported command ' + cmd)
 
     def run(self):
         try:
             while True:
-                if self.trace_flag:
-                    sys.stdout.write('> ')
-                    print self.disassemble([self.memory[self.program_counter]], self.program_counter)
-                instr = self.memory[self.program_counter]
-                if instr is END_OF_PROGRAM:
-                    break
-                method, args = instr
-                if not method(*args):
-                    self.program_counter += 1
+                self.cpu_cycle()
         except RuntimeException as e:
             sys.stderr.write('System halted: ' + str(e))
             raise e
 
+    def cpu_cycle(self):
+        if self.halted_flag:
+            return
+        instr = self.memory[self.program_counter]
+        if self.trace_flag:
+            for line in self.disassemble([instr], self.program_counter).split('\n'):
+                print '>', line
+        if instr is END_OF_PROGRAM:
+            self.halted_flag = True
+            return
+        method, args = instr
+        if not method(*args):
+            self.program_counter += 1
+
     def get_address(self, address):
         try:
-                addr = int(address)
+            addr = int(address)
         except:
-            try:
-                addr = self.labels[address]
-            except:
-                if target[1] == 'R':
-                    addr = self.registers[int(address[1:])]
+            addr = None
+            if address[1] == 'R':
+                try:
+                    addr = self.registers[int(address[2:])]
+                except:
+                    pass
+            if addr is None:
+                addr = self.labels.get(address)
+            if addr is None:
+                print self.labels
+                raise RuntimeException('Invalid address reference ' + address)
         if addr > MEMSIZE or addr < 0:
             raise RuntimeException('Address ' + address + ' out of bounds (' + addr + ')')
         return addr
@@ -271,6 +314,8 @@ class Cpu(object):
             addr = self.get_address(target[1:])
             if isinstance(self.memory[addr], Setable):
                 self.memory[addr].set(value)
+            elif isinstance(self.memory[addr], Getable):
+                raise RuntimeException('Target is read only ' + target)
             else:
                 self.memory[addr] = value
         elif target[0] == 'R':
@@ -282,7 +327,10 @@ class Cpu(object):
         if not value:
             return None
         if value[0] == '@':
-            return self.memory[self.get_address(value[1:])]
+            res = self.memory[self.get_address(value[1:])]
+            if isinstance(res, Getable):
+                return res.get()
+            return res
         if value[0] == 'R':
             return self.registers[int(value[1:])]
         if len(value) >= 2 and value[0] == "'" and value[-1] == "'":
@@ -290,7 +338,11 @@ class Cpu(object):
         try:
             return int(value)
         except:
-            return float(value)
+            try:
+                return float(value)
+            except:
+                if value in self.labels:
+                    return self.labels[value]
         raise RuntimeException('Invalid value reference ' + value)
 
     def copy(self, target, value):
