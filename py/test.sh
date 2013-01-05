@@ -6,15 +6,25 @@ here=`pwd`
 # You can run this file directly. It is meant to be run from build.sh though.
 # @author Philip Bergen
 
-for file in *.py; do
-    echo "TEST "$file
-    python -m doctest $file
-done
+set -e
 
-ls *.md >/dev/null 2>&1 && for file in *.md; do
-    python <<EOF
+for file in *.py *.md; do
+    echo "TEST "$file
+    case $file in
+        *.py)
+            python -m doctest $file &
+            ;;
+        *.md)
+            (python <<EOF
 import doctest
-print "TEST $file"
 doctest.testfile('$file')
 EOF
+) &
+            ;;
+        *)
+            echo "Unsupported file format: $file"
+            exit 1
+            ;;
+    esac
 done
+wait
