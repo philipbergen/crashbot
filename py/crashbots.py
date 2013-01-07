@@ -43,7 +43,8 @@ class Robot(object):
         '''
         Creates a robot.
         name -- Any string, not too long though
-        pos -- Properties(x=0, y=0)
+        pos_x -- Initial horizontal position
+        pos_y -- Initial vertical position
         scanner -- callback method that returns a grid around a point, takes two args: x, y
         program -- Line iterator for robot control program
         '''
