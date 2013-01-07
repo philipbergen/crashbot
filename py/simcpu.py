@@ -23,6 +23,10 @@ class ParseException(Exception):
 class RuntimeException(Exception):
     pass
 
+class NoOutput(object):
+    def write(self, str):
+        pass
+
 class Getable(object):
     '''Base class for special memory mapped values, read only
     using assembler. These type of values can't be created in
@@ -121,6 +125,7 @@ class Cpu(object):
         self.test_flag = False
         self.trace_flag = False
         self.halted_flag = False
+        self.out = sys.stdout
 
     @classmethod
     def ez_run(cls, program_string):
@@ -147,7 +152,7 @@ class Cpu(object):
 
         >>> cpu = Cpu('load test 2')
         >>> cpu.load('''
-        ... jump @main
+        ... jump main
         ... hello:
         ... ='Hello'
         ... world:
@@ -209,6 +214,7 @@ class Cpu(object):
         Test the loaded instructions by running them all.
         Memory, stack, flags and registers are restored after
         '''
+        self.out = NoOutput()
         backupmem, self.memory = self.memory, copy.copy(self.memory)
         backupreg, self.registers = self.registers, copy.copy(self.registers)
         backupstack, self.stack = self.stack, copy.copy(self.stack)
@@ -227,6 +233,7 @@ class Cpu(object):
         self.stack = backupstack
         self.test_flag, self.trace_flag, self.halted_flag = backupflags
         self.program_counter = backuppc
+        self.out = sys.stdout
         
     def parse(self, line):
         line = line.strip()
@@ -270,7 +277,7 @@ class Cpu(object):
 
     def run(self):
         try:
-            while True:
+            while not self.halted_flag:
                 self.cpu_cycle()
         except RuntimeException as e:
             sys.stderr.write('System halted: ' + str(e))
@@ -282,7 +289,7 @@ class Cpu(object):
         instr = self.memory[self.program_counter]
         if self.trace_flag:
             for line in self.disassemble([instr], self.program_counter).split('\n'):
-                print '>', line
+                self.out.write('> ' + line + '\n')
         if instr is END_OF_PROGRAM:
             self.halted_flag = True
             return
@@ -303,7 +310,7 @@ class Cpu(object):
             if addr is None:
                 addr = self.labels.get(address)
             if addr is None:
-                print self.labels
+                self.out.write(repr(self.labels) + '\n')
                 raise RuntimeException('Invalid address reference ' + address)
         if addr > MEMSIZE or addr < 0:
             raise RuntimeException('Address ' + address + ' out of bounds (' + addr + ')')
@@ -406,7 +413,7 @@ class Cpu(object):
             return self.call(label)
 
     def back(self):
-        self.program_counter = int(tmp)
+        self.program_counter = int(self.stack.pop())
 
     def trace(self):
         self.trace_flag = True
@@ -415,30 +422,32 @@ class Cpu(object):
         self.trace_flag = False
 
     def debug(self, *values):
-        print "----==| DEBUG |==----"
-        print "NAME:", self.name, "TEST:", self.test_flag, "PC:", self.program_counter, \
-            "REGISTERS:", self.registers, "STACK:", self.stack, "INSTRUCTION:"
+        self.out.write("----==| DEBUG |==----\n")
+        self.out.write("NAME: " + self.name + " TEST: " + str(self.test_flag) + " PC: "
+                       + str(self.program_counter) + " REGISTERS: " + str(self.registers) + " STACK: "
+                       + str(self.stack) + " INSTRUCTION:\n")
         try:
-            print str(self.disassemble([self.memory[self.program_counter]], self.program_counter))
+            self.out.write(str(self.disassemble([self.memory[self.program_counter]], self.program_counter))
+                           + "\n")
         except:
-            print "PROGRAM COUNTER OUTSIDE MEMORY"
+            self.out.write("PROGRAM COUNTER OUTSIDE MEMORY\n")
         debug = []
         for value in values:
             try:
                 debug.append(str(self.get_value(value)))
             except:
                 debug.append('**' + str(value))
-        print "DEBUG:", ', '.join(debug)
+        self.out.write("DEBUG: " + ', '.join(debug) + "\n")
 
     def longdebug(self, *values):
         self.debug(*values)
         for key, addr in sorted(self.labels.iteritems()):
             try:
-                print key, '=', self.memory[addr]
+                self.out.write(str(key) + ' = ' + self(self.memory[addr]) + '\n')
             except:
-                print key, '=', '@' + str(addr)
-        print 'Memory disassembled'
-        print self.disassemble(self.memory)
+                self.out.write(str(key) + ' = @' + str(addr) + '\n')
+        self.out.write('Memory disassembled\n')
+        self.out.write(self.disassemble(self.memory) + '\n')
 
     def disassemble(self, mem, start_address=0):
         res = []
