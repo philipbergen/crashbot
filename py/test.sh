@@ -12,14 +12,14 @@ for file in *.py *.md; do
     echo "TEST "$file
     case $file in
         *.py)
-            python -m doctest $file &
+            python -m doctest $file
             ;;
         *.md)
             (python <<EOF
 import doctest
 doctest.testfile('$file')
 EOF
-) &
+)
             ;;
         *)
             echo "Unsupported file format: $file"
@@ -27,4 +27,3 @@ EOF
             ;;
     esac
 done
-wait
